@@ -14,6 +14,7 @@ const ADMIN_PASS = process.env.ADMIN_PASS || "aomsin18037";
 let adminSessions = new Set();
 let users = {};
 let sockets = {};
+let bannedUsers = {};
 
 function getCookie(req, name) {
     const cookies = req.headers.cookie || "";
@@ -122,11 +123,26 @@ app.get('/', (req, res) => {
             <td>${u.lastLogout}</td>
 
             <td>
-                <a href="/shutdown/${hwid}"
-                onclick="return confirm('Shutdown ${hwid} ?')">
-                    <button class="kill-btn">✖</button>
-                </a>
-            </td>
+    		<form method="POST" action="/shutdown/${encodeURIComponent(hwid)}"
+    style="display:inline;"
+    onsubmit="return confirm('Shutdown ${hwid} ?')">
+        <button class="kill-btn" type="submit">✖</button>
+    </form>
+
+    ${bannedUsers[hwid] ? `
+        <form method="POST" action="/unban/${encodeURIComponent(hwid)}"
+        style="display:inline;">
+            <button class="ban-btn unban" type="submit">UNBAN</button>
+        </form>
+    ` : `
+        <form method="POST" action="/ban/${encodeURIComponent(hwid)}"
+        style="display:inline;"
+        onsubmit="return confirm('Ban ${hwid} ?')">
+            <button class="ban-btn" type="submit">BAN</button>
+        </form>
+    `}
+
+		</td>
         </tr>
         `;
     }
@@ -346,6 +362,29 @@ text-shadow:
 }
 }
 
+.ban-btn{
+    border:none;
+    border-radius:8px;
+    background:#ff7a00;
+    color:white;
+    padding:9px 12px;
+    font-weight:bold;
+    cursor:pointer;
+    margin-left:6px;
+}
+
+.ban-btn:hover{
+    background:#ff9f1a;
+}
+
+.unban{
+    background:#00aa55;
+}
+
+.unban:hover{
+    background:#00cc66;
+}
+
 </style>
 </head>
 
@@ -455,6 +494,47 @@ app.get('/shutdownall', (req, res) => {
 });
 
 /* ===========================
+   BAN USER
+=========================== */
+app.post('/ban/:hwid', (req, res) => {
+    const hwid = decodeURIComponent(req.params.hwid);
+
+    bannedUsers[hwid] = true;
+
+    if (users[hwid]) {
+        users[hwid].forceShutdown = true;
+        users[hwid].sessions.clear();
+        users[hwid].lastLogout = now();
+    }
+
+    if (sockets[hwid]) {
+        sockets[hwid].send(JSON.stringify({
+            cmd: "shutdown",
+            reason: "banned"
+        }));
+
+        delete sockets[hwid];
+    }
+
+    res.redirect('/');
+});
+
+/* ===========================
+   UNBAN USER
+=========================== */
+app.post('/unban/:hwid', (req, res) => {
+    const hwid = decodeURIComponent(req.params.hwid);
+
+    delete bannedUsers[hwid];
+
+    if (users[hwid]) {
+        users[hwid].forceShutdown = false;
+    }
+
+    res.redirect('/');
+});
+
+/* ===========================
    WEBSOCKET
 =========================== */
 wss.on('connection', ws => {
@@ -471,6 +551,14 @@ wss.on('connection', ws => {
 }
         let hwid = data.hwid;
         let session = data.session;
+	
+	if (bannedUsers[hwid]) {
+   	 ws.send(JSON.stringify({
+        cmd: "shutdown",
+        reason: "banned"
+   	 }));
+   	 return;
+	}	
 
         if (!users[hwid]) {
             users[hwid] = {
