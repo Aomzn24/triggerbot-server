@@ -96,16 +96,20 @@ app.get('/', (req, res) => {
         let online = u.sessions.size > 0;
 
         let status = "OFFLINE";
-        let color = "#ff4444";
+	let color = "#ff4444";
 
-        if (u.forceShutdown === true) {
-            status = "✖ FORCE SHUTDOWN";
-            color = "#ff0000";
-        }
-        else if (online) {
-            status = "ONLINE";
-            color = "#00ff66";
-        }
+	if (bannedUsers[hwid]) {
+   	 status = "🚫 BANNED";
+   	 color = "#ff7a00";
+	}
+	else if (u.forceShutdown === true) {
+   	 status = "✖ FORCE SHUTDOWN";
+   	 color = "#ff0000";
+	}
+	else if (online) {
+  	  status = "ONLINE";
+   	 color = "#00ff66";
+	}
 
         rows += `
         <tr>
