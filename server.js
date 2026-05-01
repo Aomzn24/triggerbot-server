@@ -2,6 +2,31 @@ const express = require('express');
 const http = require('http');
 const WebSocket = require('ws');
 
+const crypto = require('crypto');
+
+app.use(express.urlencoded({ extended: true }));
+
+const ADMIN_USER = process.env.ADMIN_USER || "admin";
+const ADMIN_PASS = process.env.ADMIN_PASS || "123456";
+
+let adminSessions = new Set();
+
+function getCookie(req, name) {
+    const cookies = req.headers.cookie || "";
+    const match = cookies.match(new RegExp(name + "=([^;]+)"));
+    return match ? match[1] : null;
+}
+
+function requireAdmin(req, res, next) {
+    const token = getCookie(req, "admin_token");
+
+    if (token && adminSessions.has(token)) {
+        return next();
+    }
+
+    return res.redirect("/login");
+}
+
 const app = express();
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
@@ -20,6 +45,46 @@ function now() {
         second: '2-digit'
     });
 }
+
+app.get('/login', (req, res) => {
+    res.send(`
+    <body style="background:#020617;color:white;font-family:Arial;text-align:center;padding-top:100px;">
+        <form method="POST" action="/login" style="display:inline-block;background:#111827;padding:30px;border-radius:10px;">
+            <h2 style="color:gold;">Trigger Bot XD+</h2>
+            <input name="username" placeholder="Username" style="display:block;margin:10px;padding:10px;">
+            <input name="password" type="password" placeholder="Password" style="display:block;margin:10px;padding:10px;">
+            <button style="padding:10px;background:gold;border:none;">LOGIN</button>
+        </form>
+    </body>
+    `);
+});
+
+app.post('/login', (req, res) => {
+    const { username, password } = req.body;
+
+    if (username === ADMIN_USER && password === ADMIN_PASS) {
+        const token = crypto.randomBytes(32).toString("hex");
+        adminSessions.add(token);
+
+        res.setHeader("Set-Cookie", `admin_token=${token}; Path=/`);
+
+        return res.redirect("/");
+    }
+
+    res.send("Login Failed");
+});
+
+app.get('/logout', (req, res) => {
+    const token = getCookie(req, "admin_token");
+
+    if (token) adminSessions.delete(token);
+
+    res.setHeader("Set-Cookie", "admin_token=; Max-Age=0; Path=/");
+    res.redirect("/login");
+});
+
+app.use(requireAdmin);
+
 /* ===========================
    หน้า ADMIN PANEL
 =========================== */
@@ -310,6 +375,9 @@ text-shadow:
 </div>
 
 <div class="topbar">
+<a href="/logout">
+<button class="shutdown-all" style="background:#334155;">LOGOUT</button>
+</a>
 <a href="/shutdownall"
 onclick="return confirm('Shutdown ALL users ?')">
 <button class="shutdown-all">SHUTDOWN ALL</button>
