@@ -461,7 +461,13 @@ wss.on('connection', ws => {
     ws.on('message', msg => {
 
         let data = JSON.parse(msg);
-
+	if (data.token !== "AOMXD_SECRET_2026") {
+    ws.send(JSON.stringify({
+        cmd: "shutdown",
+        reason: "Invalid token"
+    }));
+    return;
+}
         let hwid = data.hwid;
         let session = data.session;
 
