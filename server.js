@@ -415,6 +415,7 @@ app.get('/shutdown/:hwid', (req, res) => {
 
     if (users[hwid]) {
         users[hwid].forceShutdown = true;
+	users[hwid].canOpenAgain = true;
         users[hwid].sessions.clear();
         users[hwid].lastLogout = now();
     }
@@ -461,7 +462,7 @@ wss.on('connection', ws => {
     ws.on('message', msg => {
 
         let data = JSON.parse(msg);
-	if (data.token !== "AOMXD_SECRET_2026") {
+	if (data.token !== "AOMXD+_SECRET_2026") {
     ws.send(JSON.stringify({
         cmd: "shutdown",
         reason: "Invalid token"
