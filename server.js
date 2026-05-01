@@ -15,6 +15,7 @@ let adminSessions = new Set();
 let users = {};
 let sockets = {};
 let bannedUsers = {};
+let userLimits = {};
 
 function getCookie(req, name) {
     const cookies = req.headers.cookie || "";
@@ -123,6 +124,17 @@ app.get('/', (req, res) => {
             </td>
 
             <td>${u.sessions.size}</td>
+
+<td>
+    <form method="POST" action="/limit/${encodeURIComponent(hwid)}">
+        <input name="limit" value="${userLimits[hwid] || 1}"
+        style="width:60px;text-align:center;padding:6px;border-radius:6px;border:none;">
+        <button type="submit" class="limit-btn">SET</button>
+    </form>
+</td>
+
+<td>${u.lastLogin}</td>
+<td>${u.lastLogout}</td>
             <td>${u.lastLogin}</td>
             <td>${u.lastLogout}</td>
 
@@ -429,6 +441,7 @@ onclick="return confirm('Shutdown ALL users ?')">
 <th>HWID</th>
 <th>STATUS</th>
 <th>OPEN NOW</th>
+<th>LIMIT</th>
 <th>LAST LOGIN</th>
 <th>LAST LOGOUT</th>
 <th>CONTROL</th>
