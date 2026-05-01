@@ -1,15 +1,19 @@
 const express = require('express');
 const http = require('http');
 const WebSocket = require('ws');
-
 const crypto = require('crypto');
 
+const app = express();
+const server = http.createServer(app);
+const wss = new WebSocket.Server({ server });
 app.use(express.urlencoded({ extended: true }));
 
 const ADMIN_USER = process.env.ADMIN_USER || "admin";
-const ADMIN_PASS = process.env.ADMIN_PASS || "123456";
+const ADMIN_PASS = process.env.ADMIN_PASS || "aomsin18037";
 
 let adminSessions = new Set();
+let users = {};
+let sockets = {};
 
 function getCookie(req, name) {
     const cookies = req.headers.cookie || "";
@@ -26,13 +30,6 @@ function requireAdmin(req, res, next) {
 
     return res.redirect("/login");
 }
-
-const app = express();
-const server = http.createServer(app);
-const wss = new WebSocket.Server({ server });
-
-let users = {};
-let sockets = {};
 
 function now() {
     return new Date().toLocaleString('th-TH', {
