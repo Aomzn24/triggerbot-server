@@ -304,6 +304,10 @@ app.get('/logout', (req, res) => {
     res.redirect("/login");
 });
 
+app.get('/ping', (req, res) => {
+    res.status(200).send('OK');
+});
+
 app.use(requireAdmin);
 
 /* ===========================
