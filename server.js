@@ -49,15 +49,21 @@ async function initGoogleSheet() {
             return;
         }
 
-        const credentials = JSON.parse(
-    GOOGLE_SERVICE_ACCOUNT_JSON.replace(/\\n/g, '\n')
-);
+        // 👇 ใส่ตรงนี้
+        console.log("SHEET_ID:", SHEET_ID);
+        console.log("SHEET_NAME:", SHEET_NAME);
+        console.log("Google JSON loaded:", !!GOOGLE_SERVICE_ACCOUNT_JSON);
+
+        const credentials = JSON.parse(GOOGLE_SERVICE_ACCOUNT_JSON);
+
+        if (credentials.private_key) {
+            credentials.private_key = credentials.private_key.replace(/\\n/g, '\n');
+        }
 
         const auth = new google.auth.GoogleAuth({
             credentials,
             scopes: ['https://www.googleapis.com/auth/spreadsheets']
         });
-
         sheetsClient = google.sheets({
             version: 'v4',
             auth
