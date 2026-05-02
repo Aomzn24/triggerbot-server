@@ -802,7 +802,104 @@ POWER By AOM XD+ Protocols ©
 </div>
 
 </div>
+<script>
+let isTyping = false;
 
+function esc(s){
+    return String(s ?? "").replace(/[&<>"']/g, m => ({
+        "&":"&amp;",
+        "<":"&lt;",
+        ">":"&gt;",
+        '"':"&quot;",
+        "'":"&#039;"
+    }[m]));
+}
+
+function statusHtml(status){
+    if(status === "ONLINE") return '<span class="status-online">ONLINE</span>';
+    if(status === "BANNED") return '<span class="status-banned">🚫 BANNED</span>';
+    if(status === "FORCE SHUTDOWN") return '<span class="status-force">✖ FORCE SHUTDOWN</span>';
+    return '<span class="status-offline">OFFLINE</span>';
+}
+
+function renderDashboard(data){
+    if(isTyping) return;
+
+    document.querySelector(".red-num").innerText = data.totalUser;
+    document.querySelector(".green-num").innerText = data.onlineNow;
+    document.querySelector(".orange-num").innerText = data.bannedCount;
+
+    const tbody = document.getElementById("userRows");
+
+    tbody.innerHTML = data.users.map(u => `
+        <tr>
+            <td>
+                <form method="POST" action="/setname/${encodeURIComponent(u.hwid)}" class="name-form">
+                    <input name="username" value="${esc(u.user)}" class="name-input"
+                    onfocus="isTyping=true" onblur="isTyping=false">
+                    <button type="submit" class="name-btn">SAVE</button>
+                </form>
+            </td>
+
+            <td class="hwid">${esc(u.hwid)}</td>
+            <td>${statusHtml(u.status)}</td>
+            <td>${u.openNow}</td>
+
+            <td>
+                <form method="POST" action="/limit/${encodeURIComponent(u.hwid)}" class="limit-form">
+                    <input name="limit" value="${u.limit}" class="limit-input"
+                    onfocus="isTyping=true" onblur="isTyping=false">
+                    <button type="submit" class="limit-btn">SET</button>
+                </form>
+            </td>
+
+            <td>${esc(u.lastLogin)}</td>
+            <td>${esc(u.lastLogout)}</td>
+
+            <td>
+                <form method="POST" action="/shutdown/${encodeURIComponent(u.hwid)}"
+                style="display:inline;"
+                onsubmit="return confirm('Shutdown ${esc(u.hwid)} ?')">
+                    <button class="kill-btn" type="submit">✖</button>
+                </form>
+
+                ${u.banned ? `
+                    <form method="POST" action="/unban/${encodeURIComponent(u.hwid)}"
+                    style="display:inline;">
+                        <button class="ban-btn unban" type="submit">UNBAN</button>
+                    </form>
+                ` : `
+                    <form method="POST" action="/ban/${encodeURIComponent(u.hwid)}"
+                    style="display:inline;"
+                    onsubmit="return confirm('Ban ${esc(u.hwid)} ?')">
+                        <button class="ban-btn" type="submit">BAN</button>
+                    </form>
+                `}
+            </td>
+        </tr>
+    `).join("");
+}
+
+const wsProto = location.protocol === "https:" ? "wss://" : "ws://";
+const adminWs = new WebSocket(wsProto + location.host);
+
+adminWs.onopen = () => {
+    adminWs.send(JSON.stringify({ type: "admin" }));
+};
+
+adminWs.onmessage = (e) => {
+    try{
+        const data = JSON.parse(e.data);
+        if(data.type === "dashboard"){
+            renderDashboard(data);
+        }
+    }catch{}
+};
+
+adminWs.onclose = () => {
+    setTimeout(() => location.reload(), 3000);
+};
+</script>
 </body>
 </html>
 `);
@@ -818,6 +915,7 @@ app.post('/setname/:hwid', async (req, res) => {
     userNames[hwid] = username || "USER-" + hwid;
 
     await saveUserToSheet(hwid);
+        broadcastDashboard();
 
     res.redirect('/');
 });
@@ -836,6 +934,7 @@ app.post('/limit/:hwid', async (req, res) => {
 
     userLimits[hwid] = limit;
     await saveUserToSheet(hwid);
+        broadcastDashboard();
 
     res.redirect('/');
 });
@@ -860,7 +959,7 @@ app.post('/shutdown/:hwid', (req, res) => {
 
         delete sockets[hwid];
     }
-
+        broadcastDashboard();
     res.redirect('/');
 });
 
@@ -882,7 +981,7 @@ app.post('/shutdownall', (req, res) => {
     }
 
     sockets = {};
-
+        broadcastDashboard();
     res.redirect('/');
 });
 
@@ -894,6 +993,7 @@ app.post('/ban/:hwid', async (req, res) => {
 
     bannedUsers[hwid] = true;
     await saveUserToSheet(hwid);
+
     if (users[hwid]) {
         users[hwid].forceShutdown = true;
         users[hwid].sessions.clear();
@@ -909,6 +1009,7 @@ app.post('/ban/:hwid', async (req, res) => {
         delete sockets[hwid];
     }
 
+        broadcastDashboard();
     res.redirect('/');
 });
 
@@ -924,13 +1025,57 @@ app.post('/unban/:hwid', async (req, res) => {
     if (users[hwid]) {
         users[hwid].forceShutdown = false;
     }
-
+        broadcastDashboard();
     res.redirect('/');
 });
 
 /* ===========================
    WEBSOCKET
 =========================== */
+function getDashboardData() {
+    const list = [];
+
+    for (let hwid in users) {
+        const u = users[hwid];
+        const online = u.sessions.size > 0;
+
+        let status = "OFFLINE";
+
+        if (bannedUsers[hwid]) status = "BANNED";
+        else if (u.forceShutdown === true) status = "FORCE SHUTDOWN";
+        else if (online) status = "ONLINE";
+
+        list.push({
+            user: userNames[hwid] || "USER-" + hwid,
+            hwid: hwid,
+            status: status,
+            openNow: u.sessions.size,
+            limit: userLimits[hwid] || 1,
+            lastLogin: u.lastLogin,
+            lastLogout: u.lastLogout,
+            banned: !!bannedUsers[hwid]
+        });
+    }
+
+    return {
+        type: "dashboard",
+        totalUser: Object.keys(users).length,
+        onlineNow: Object.values(users).filter(x => x.sessions.size > 0).length,
+        bannedCount: Object.keys(bannedUsers).length,
+        users: list
+    };
+}
+
+function broadcastDashboard() {
+    const data = JSON.stringify(getDashboardData());
+
+    wss.clients.forEach(client => {
+        if (client.readyState === WebSocket.OPEN && client.isAdmin === true) {
+            client.send(data);
+        }
+    });
+}
+
 wss.on('connection', ws => {
     ws.isAdmin = false;
     ws.on('message', msg => {
@@ -938,9 +1083,7 @@ wss.on('connection', ws => {
             let data = JSON.parse(msg);
 	if (data.type === "admin") {
     ws.isAdmin = true;
-    ws.send(JSON.stringify({
-        type: "dashboard"
-    }));
+    ws.send(JSON.stringify(getDashboardData()));
     return;
 }
             if (data.token !== CLIENT_TOKEN) {
@@ -998,6 +1141,7 @@ wss.on('connection', ws => {
                 users[hwid].lastLogout = '-';
 
 		saveUserToSheet(hwid);
+		broadcastDashboard();
 
             }
 
@@ -1006,10 +1150,12 @@ wss.on('connection', ws => {
                 users[hwid].lastLogout = now();
 
 		saveUserToSheet(hwid);
-		
+
                 if (users[hwid].sessions.size === 0) {
                     delete sockets[hwid];
                 }
+
+		broadcastDashboard();
             }
         }
         catch (err) {
