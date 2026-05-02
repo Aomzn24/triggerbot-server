@@ -102,7 +102,7 @@ async function loadSheetData() {
 	        const username = row[3];
                         const lastLogin = row[4];
                         const lastLogout = row[5];
-
+		userNames[hwid] = username || "USER-" + hwid;
             if (!hwid) return;
 
             if (String(banned).toUpperCase() === "TRUE") {
@@ -159,13 +159,10 @@ async function saveUserToSheet(hwid) {
         const banned = bannedUsers[hwid] ? "TRUE" : "FALSE";
         const limit = userLimits[hwid] || 1;
         const username = userNames[hwid] || "USER-" + hwid;
-const lastLogin = users[hwid]?.lastLogin || '-';
-const lastLogout = users[hwid]?.lastLogout || '-';
-const note = "";
-
-const values = [[hwid, banned, limit, username, lastLogin, lastLogout, note]];
-
-        const values = [[hwid, banned, limit, note]];
+	const lastLogin = users[hwid]?.lastLogin || '-';
+	const lastLogout = users[hwid]?.lastLogout || '-';
+	const note = "";
+	const values = [[hwid, banned, limit, username, lastLogin, lastLogout, note]];
 
         if (rowIndex === -1) {
             await sheetsClient.spreadsheets.values.append({
@@ -956,6 +953,7 @@ wss.on('connection', ws => {
 
 	        if (!userNames[hwid]) {
     		userNames[hwid] = "USER-" + hwid;
+	}
 
             if (data.type === "online") {
                 users[hwid].forceShutdown = false;
