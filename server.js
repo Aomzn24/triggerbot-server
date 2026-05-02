@@ -44,7 +44,9 @@ async function initGoogleSheet() {
             return;
         }
 
-        const credentials = JSON.parse(GOOGLE_SERVICE_ACCOUNT_JSON);
+        const credentials = JSON.parse(
+    GOOGLE_SERVICE_ACCOUNT_JSON.replace(/\\n/g, '\n')
+);
 
         const auth = new google.auth.GoogleAuth({
             credentials,
