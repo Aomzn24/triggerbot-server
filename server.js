@@ -281,6 +281,22 @@ button{
     <input name="password" type="password" placeholder="Password" required>
     <button type="submit">LOGIN</button>
 </form>
+<script>
+const wsProto = location.protocol === "https:" ? "wss://" : "ws://";
+const adminWs = new WebSocket(wsProto + location.host);
+
+adminWs.onopen = () => {
+    adminWs.send(JSON.stringify({ type: "admin" }));
+};
+
+adminWs.onmessage = (e) => {
+    console.log("ADMIN WS:", e.data);
+};
+
+adminWs.onclose = () => {
+    setTimeout(() => location.reload(), 3000);
+};
+</script>
 </body>
 </html>
 `);
@@ -409,7 +425,6 @@ app.get('/', (req, res) => {
 <html lang="th">
 <head>
 <meta charset="UTF-8">
-<meta http-equiv="refresh" content="2">
 <title>Trigger Bot XD+</title>
 
 <style>
@@ -776,7 +791,9 @@ tr:hover{
     <th>CONTROL</th>
 </tr>
 
+<tbody id="userRows">
 ${rows}
+</tbody>
 
 </table>
 
@@ -915,10 +932,17 @@ app.post('/unban/:hwid', async (req, res) => {
    WEBSOCKET
 =========================== */
 wss.on('connection', ws => {
+    ws.isAdmin = false;
     ws.on('message', msg => {
         try {
             let data = JSON.parse(msg);
-
+	if (data.type === "admin") {
+    ws.isAdmin = true;
+    ws.send(JSON.stringify({
+        type: "dashboard"
+    }));
+    return;
+}
             if (data.token !== CLIENT_TOKEN) {
                 ws.send(JSON.stringify({
                     cmd: "shutdown",
