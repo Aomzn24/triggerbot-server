@@ -27,6 +27,7 @@ let users = {};
 let sockets = {};
 let bannedUsers = {};
 let userLimits = {};
+let userNames = {};
 
 function now() {
     return new Date().toLocaleString('th-TH', {
@@ -82,7 +83,7 @@ async function loadSheetData() {
     try {
         if (!sheetsClient) return;
 
-        const range = sheetRange("A2:D");
+        const range = sheetRange("A2:G");
 
         const result = await sheetsClient.spreadsheets.values.get({
             spreadsheetId: SHEET_ID,
@@ -98,6 +99,9 @@ async function loadSheetData() {
             const hwid = row[0];
             const banned = row[1];
             const limit = row[2];
+	        const username = row[3];
+                        const lastLogin = row[4];
+                        const lastLogout = row[5];
 
             if (!hwid) return;
 
@@ -106,6 +110,12 @@ async function loadSheetData() {
             }
 
             userLimits[hwid] = parseInt(limit) || 1;
+	       users[hwid] = {
+    	sessions: new Set(),
+    	lastLogin: lastLogin || '-',
+    	lastLogout: lastLogout || '-',
+    	forceShutdown: false
+	};
 
             if (!users[hwid]) {
                 users[hwid] = {
@@ -128,7 +138,7 @@ async function saveUserToSheet(hwid) {
     try {
         if (!sheetsClient || !hwid) return;
 
-        const range = sheetRange("A2:D");
+        const range = sheetRange("A2:G");
 
         const result = await sheetsClient.spreadsheets.values.get({
             spreadsheetId: SHEET_ID,
@@ -148,14 +158,19 @@ async function saveUserToSheet(hwid) {
 
         const banned = bannedUsers[hwid] ? "TRUE" : "FALSE";
         const limit = userLimits[hwid] || 1;
-        const note = `login: ${users[hwid]?.lastLogin || '-'} | logout: ${users[hwid]?.lastLogout || '-'}`;
+        const username = userNames[hwid] || "USER-" + hwid;
+const lastLogin = users[hwid]?.lastLogin || '-';
+const lastLogout = users[hwid]?.lastLogout || '-';
+const note = "";
+
+const values = [[hwid, banned, limit, username, lastLogin, lastLogout, note]];
 
         const values = [[hwid, banned, limit, note]];
 
         if (rowIndex === -1) {
             await sheetsClient.spreadsheets.values.append({
                 spreadsheetId: SHEET_ID,
-                range: sheetRange("A:D"),
+                range: sheetRange("A:G"),
                 valueInputOption: 'RAW',
                 requestBody: {
                     values
@@ -165,7 +180,7 @@ async function saveUserToSheet(hwid) {
         else {
             await sheetsClient.spreadsheets.values.update({
                 spreadsheetId: SHEET_ID,
-                range: sheetRange(`A${rowIndex}:D${rowIndex}`),
+                range: sheetRange(`A${rowIndex}:G${rowIndex}`),
                 valueInputOption: 'RAW',
                 requestBody: {
                     values
@@ -339,7 +354,14 @@ app.get('/', (req, res) => {
 
         rows += `
         <tr>
-            <td class="hwid">${hwid}</td>
+            <td>
+    <form method="POST" action="/setname/${encodeURIComponent(hwid)}" class="name-form">
+        <input name="username" value="${userNames[hwid] || "USER-" + hwid}" class="name-input">
+        <button type="submit" class="name-btn">SAVE</button>
+    </form>
+</td>
+
+<td class="hwid">${hwid}</td>
 
             <td>
                 <span class="${statusClass}">${status}</span>
@@ -670,6 +692,40 @@ tr:hover{
         text-shadow:0 0 14px #ffd700,0 0 30px #fff7c0,0 0 50px #ffcc00;
     }
 }
+
+.name-form{
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    gap:6px;
+}
+
+.name-input{
+    width:130px;
+    text-align:center;
+    padding:8px;
+    border-radius:8px;
+    border:none;
+    outline:none;
+    background:#f8fafc;
+    color:#111;
+    font-weight:bold;
+}
+
+.name-btn{
+    border:none;
+    border-radius:8px;
+    background:#7c3aed;
+    color:white;
+    padding:8px 11px;
+    font-weight:bold;
+    cursor:pointer;
+}
+
+.name-btn:hover{
+    background:#8b5cf6;
+}
+
 </style>
 </head>
 
@@ -713,6 +769,7 @@ tr:hover{
 
 <table>
 <tr>
+        <th>USER</th>
     <th>HWID</th>
     <th>STATUS</th>
     <th>OPEN NOW</th>
@@ -735,6 +792,20 @@ POWER By AOM XD+ Protocols ©
 </body>
 </html>
 `);
+});
+
+/* ===========================
+   SET USER NAME
+=========================== */
+app.post('/setname/:hwid', async (req, res) => {
+    const hwid = decodeURIComponent(req.params.hwid);
+    const username = (req.body.username || "").trim();
+
+    userNames[hwid] = username || "USER-" + hwid;
+
+    await saveUserToSheet(hwid);
+
+    res.redirect('/');
 });
 
 /* ===========================
@@ -882,6 +953,9 @@ wss.on('connection', ws => {
                     forceShutdown: false
                 };
             }
+
+	        if (!userNames[hwid]) {
+    		userNames[hwid] = "USER-" + hwid;
 
             if (data.type === "online") {
                 users[hwid].forceShutdown = false;
