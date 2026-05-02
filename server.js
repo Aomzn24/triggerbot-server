@@ -2,6 +2,7 @@ const express = require('express');
 const http = require('http');
 const WebSocket = require('ws');
 const crypto = require('crypto');
+const { google } = require('googleapis');
 
 const app = express();
 const server = http.createServer(app);
@@ -12,6 +13,9 @@ app.use(express.urlencoded({ extended: true }));
 const ADMIN_USER = process.env.ADMIN_USER || "admin";
 const ADMIN_PASS = process.env.ADMIN_PASS || "aomsin18037";
 const CLIENT_TOKEN = process.env.CLIENT_TOKEN || "AOMXD+_SECRET_2026";
+const SHEET_ID = process.env.SHEET_ID;
+const SHEET_NAME = process.env.SHEET_NAME || "HWID";
+const GOOGLE_SERVICE_ACCOUNT_JSON = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
 
 let adminSessions = new Set();
 let users = {};
@@ -29,6 +33,138 @@ function now() {
         minute: '2-digit',
         second: '2-digit'
     });
+}
+
+let sheetsClient = null;
+
+async function initGoogleSheet() {
+    try {
+        if (!SHEET_ID || !GOOGLE_SERVICE_ACCOUNT_JSON) {
+            console.log("Google Sheet disabled: missing SHEET_ID or GOOGLE_SERVICE_ACCOUNT_JSON");
+            return;
+        }
+
+        const credentials = JSON.parse(GOOGLE_SERVICE_ACCOUNT_JSON);
+
+        const auth = new google.auth.GoogleAuth({
+            credentials,
+            scopes: ['https://www.googleapis.com/auth/spreadsheets']
+        });
+
+        sheetsClient = google.sheets({
+            version: 'v4',
+            auth
+        });
+
+        console.log("Google Sheet connected");
+
+        await loadSheetData();
+    }
+    catch (err) {
+        console.log("Google Sheet init error:", err.message);
+    }
+}
+
+async function loadSheetData() {
+    try {
+        if (!sheetsClient) return;
+
+        const range = `${SHEET_NAME}!A2:D`;
+
+        const result = await sheetsClient.spreadsheets.values.get({
+            spreadsheetId: SHEET_ID,
+            range
+        });
+
+        const rows = result.data.values || [];
+
+        bannedUsers = {};
+        userLimits = {};
+
+        rows.forEach(row => {
+            const hwid = row[0];
+            const banned = row[1];
+            const limit = row[2];
+
+            if (!hwid) return;
+
+            if (String(banned).toUpperCase() === "TRUE") {
+                bannedUsers[hwid] = true;
+            }
+
+            userLimits[hwid] = parseInt(limit) || 1;
+
+            if (!users[hwid]) {
+                users[hwid] = {
+                    sessions: new Set(),
+                    lastLogin: '-',
+                    lastLogout: '-',
+                    forceShutdown: false
+                };
+            }
+        });
+
+        console.log("Sheet data loaded:", rows.length);
+    }
+    catch (err) {
+        console.log("Load sheet error:", err.message);
+    }
+}
+
+async function saveUserToSheet(hwid) {
+    try {
+        if (!sheetsClient || !hwid) return;
+
+        const range = `${SHEET_NAME}!A2:D`;
+
+        const result = await sheetsClient.spreadsheets.values.get({
+            spreadsheetId: SHEET_ID,
+            range
+        });
+
+        const rows = result.data.values || [];
+
+        let rowIndex = -1;
+
+        for (let i = 0; i < rows.length; i++) {
+            if (rows[i][0] === hwid) {
+                rowIndex = i + 2;
+                break;
+            }
+        }
+
+        const banned = bannedUsers[hwid] ? "TRUE" : "FALSE";
+        const limit = userLimits[hwid] || 1;
+        const note = "";
+
+        const values = [[hwid, banned, limit, note]];
+
+        if (rowIndex === -1) {
+            await sheetsClient.spreadsheets.values.append({
+                spreadsheetId: SHEET_ID,
+                range: `${SHEET_NAME}!A:D`,
+                valueInputOption: 'RAW',
+                requestBody: {
+                    values
+                }
+            });
+        }
+        else {
+            await sheetsClient.spreadsheets.values.update({
+                spreadsheetId: SHEET_ID,
+                range: `${SHEET_NAME}!A${rowIndex}:D${rowIndex}`,
+                valueInputOption: 'RAW',
+                requestBody: {
+                    values
+                }
+            });
+        }
+
+        console.log("Saved to sheet:", hwid);
+    }
+    catch (err) {
+        console.log("Save sheet error:", err.message);
+    }
 }
 
 function getCookie(req, name) {
@@ -597,6 +733,7 @@ app.post('/limit/:hwid', (req, res) => {
     }
 
     userLimits[hwid] = limit;
+    saveUserToSheet(hwid);
 
     res.redirect('/');
 });
@@ -654,7 +791,7 @@ app.post('/ban/:hwid', (req, res) => {
     const hwid = decodeURIComponent(req.params.hwid);
 
     bannedUsers[hwid] = true;
-
+    saveUserToSheet(hwid);
     if (users[hwid]) {
         users[hwid].forceShutdown = true;
         users[hwid].sessions.clear();
@@ -680,6 +817,7 @@ app.post('/unban/:hwid', (req, res) => {
     const hwid = decodeURIComponent(req.params.hwid);
 
     delete bannedUsers[hwid];
+    saveUserToSheet(hwid);
 
     if (users[hwid]) {
         users[hwid].forceShutdown = false;
@@ -763,6 +901,8 @@ wss.on('connection', ws => {
 });
 
 const PORT = process.env.PORT || 3000;
+
+initGoogleSheet();
 
 server.listen(PORT, () => {
     console.log("=================================");
