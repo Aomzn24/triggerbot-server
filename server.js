@@ -17,6 +17,11 @@ const SHEET_ID = process.env.SHEET_ID;
 const SHEET_NAME = process.env.SHEET_NAME || "HWID";
 const GOOGLE_SERVICE_ACCOUNT_JSON = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
 
+function sheetRange(range) {
+    const safeName = SHEET_NAME.replace(/'/g, "''");
+    return `'${safeName}'!${range}`;
+}
+
 let adminSessions = new Set();
 let users = {};
 let sockets = {};
@@ -71,7 +76,7 @@ async function loadSheetData() {
     try {
         if (!sheetsClient) return;
 
-        const range = `${SHEET_NAME}!A2:D`;
+        const range = sheetRange("A2:D");
 
         const result = await sheetsClient.spreadsheets.values.get({
             spreadsheetId: SHEET_ID,
@@ -117,7 +122,7 @@ async function saveUserToSheet(hwid) {
     try {
         if (!sheetsClient || !hwid) return;
 
-        const range = `${SHEET_NAME}!A2:D`;
+        const range = sheetRange("A2:D");
 
         const result = await sheetsClient.spreadsheets.values.get({
             spreadsheetId: SHEET_ID,
@@ -137,14 +142,14 @@ async function saveUserToSheet(hwid) {
 
         const banned = bannedUsers[hwid] ? "TRUE" : "FALSE";
         const limit = userLimits[hwid] || 1;
-        const note = "";
+        const note = `login: ${users[hwid]?.lastLogin || '-'} | logout: ${users[hwid]?.lastLogout || '-'}`;
 
         const values = [[hwid, banned, limit, note]];
 
         if (rowIndex === -1) {
             await sheetsClient.spreadsheets.values.append({
                 spreadsheetId: SHEET_ID,
-                range: `${SHEET_NAME}!A:D`,
+                range: sheetRange("A:D"),
                 valueInputOption: 'RAW',
                 requestBody: {
                     values
@@ -154,7 +159,7 @@ async function saveUserToSheet(hwid) {
         else {
             await sheetsClient.spreadsheets.values.update({
                 spreadsheetId: SHEET_ID,
-                range: `${SHEET_NAME}!A${rowIndex}:D${rowIndex}`,
+                range: sheetRange(`A${rowIndex}:D${rowIndex}`),
                 valueInputOption: 'RAW',
                 requestBody: {
                     values
@@ -725,7 +730,7 @@ POWER By AOM XD+ Protocols ©
 /* ===========================
    SET LIMIT
 =========================== */
-app.post('/limit/:hwid', (req, res) => {
+app.post('/limit/:hwid', async (req, res) => {
     const hwid = decodeURIComponent(req.params.hwid);
 
     let limit = parseInt(req.body.limit);
@@ -735,7 +740,7 @@ app.post('/limit/:hwid', (req, res) => {
     }
 
     userLimits[hwid] = limit;
-    saveUserToSheet(hwid);
+    await saveUserToSheet(hwid);
 
     res.redirect('/');
 });
@@ -789,11 +794,11 @@ app.post('/shutdownall', (req, res) => {
 /* ===========================
    BAN USER
 =========================== */
-app.post('/ban/:hwid', (req, res) => {
+app.post('/ban/:hwid', async (req, res) => {
     const hwid = decodeURIComponent(req.params.hwid);
 
     bannedUsers[hwid] = true;
-    saveUserToSheet(hwid);
+    await saveUserToSheet(hwid);
     if (users[hwid]) {
         users[hwid].forceShutdown = true;
         users[hwid].sessions.clear();
@@ -815,11 +820,11 @@ app.post('/ban/:hwid', (req, res) => {
 /* ===========================
    UNBAN USER
 =========================== */
-app.post('/unban/:hwid', (req, res) => {
+app.post('/unban/:hwid', async (req, res) => {
     const hwid = decodeURIComponent(req.params.hwid);
 
     delete bannedUsers[hwid];
-    saveUserToSheet(hwid);
+    await saveUserToSheet(hwid);
 
     if (users[hwid]) {
         users[hwid].forceShutdown = false;
@@ -885,12 +890,17 @@ wss.on('connection', ws => {
                 users[hwid].sessions.add(session);
                 users[hwid].lastLogin = now();
                 users[hwid].lastLogout = '-';
+
+		saveUserToSheet(hwid);
+
             }
 
             if (data.type === "offline") {
                 users[hwid].sessions.delete(session);
                 users[hwid].lastLogout = now();
 
+		saveUserToSheet(hwid);
+		
                 if (users[hwid].sessions.size === 0) {
                     delete sockets[hwid];
                 }
