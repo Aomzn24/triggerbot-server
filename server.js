@@ -997,14 +997,19 @@ function broadcastDashboard() {
 
 wss.on('connection', ws => {
     ws.isAdmin = false;
+    ws.hwid = null;
+    ws.session = null;
+
     ws.on('message', msg => {
         try {
             let data = JSON.parse(msg);
-	if (data.type === "admin") {
-    ws.isAdmin = true;
-    ws.send(JSON.stringify(getDashboardData()));
-    return;
-}
+
+            if (data.type === "admin") {
+                ws.isAdmin = true;
+                ws.send(JSON.stringify(getDashboardData()));
+                return;
+            }
+
             if (data.token !== CLIENT_TOKEN) {
                 ws.send(JSON.stringify({
                     cmd: "shutdown",
@@ -1016,9 +1021,10 @@ wss.on('connection', ws => {
             let hwid = data.hwid;
             let session = data.session;
 
-            if (!hwid || !session) {
-                return;
-            }
+            if (!hwid || !session) return;
+
+            ws.hwid = hwid;
+            ws.session = session;
 
             if (bannedUsers[hwid]) {
                 ws.send(JSON.stringify({
@@ -1037,9 +1043,9 @@ wss.on('connection', ws => {
                 };
             }
 
-	        if (!userNames[hwid]) {
-    		userNames[hwid] = "USER-" + hwid;
-	}
+            if (!userNames[hwid]) {
+                userNames[hwid] = "USER-" + hwid;
+            }
 
             if (data.type === "online") {
                 users[hwid].forceShutdown = false;
@@ -1059,26 +1065,48 @@ wss.on('connection', ws => {
                 users[hwid].lastLogin = now();
                 users[hwid].lastLogout = '-';
 
-		saveUserToSheet(hwid);
-		broadcastDashboard();
-
+                saveUserToSheet(hwid);
+                broadcastDashboard();
             }
 
             if (data.type === "offline") {
                 users[hwid].sessions.delete(session);
                 users[hwid].lastLogout = now();
 
-		saveUserToSheet(hwid);
+                if (users[hwid].sessions.size === 0) {
+                    delete sockets[hwid];
+                }
+
+                saveUserToSheet(hwid);
+                broadcastDashboard();
+            }
+        }
+        catch (err) {
+            console.log("Invalid message:", err.message);
+        }
+    });
+
+    ws.on('close', () => {
+        try {
+            const hwid = ws.hwid;
+            const session = ws.session;
+
+            if (hwid && session && users[hwid]) {
+                users[hwid].sessions.delete(session);
+                users[hwid].lastLogout = now();
 
                 if (users[hwid].sessions.size === 0) {
                     delete sockets[hwid];
                 }
 
-		broadcastDashboard();
+                saveUserToSheet(hwid);
+                broadcastDashboard();
+
+                console.log("Socket disconnected cleanup:", hwid, session);
             }
         }
         catch (err) {
-            console.log("Invalid message:", err.message);
+            console.log("Socket close cleanup error:", err.message);
         }
     });
 });
